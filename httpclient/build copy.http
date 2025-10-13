@@ -1,0 +1,9 @@
+POST http://127.0.0.1:5000/build_knowledge_base HTTP/1.1
+content-type: application/json
+
+{
+    "knowledge_data": [
+        {"source": "文档4", "content": "Gitee 基于 git 的代码托管和研发协作平台"},
+        {"source": "文档5", "content": "抖音有限公司（曾用名：字节跳动有限公司）成立于2016年5月4日，法定代表人张利东，注册地位于北京市海淀区北三环西路甲23号院1号楼3层327，注册资本10000万元，属于科技推广和应用服务业。公司主营技术开发、广告发布及文化经纪等业务"}
+    ]
+}

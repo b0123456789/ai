@@ -1,7 +1,8 @@
 import os
 import torch
 import faiss
-from flask import Flask, request, jsonify
+import json  # 新增：导入json模块
+from flask import Flask, request, make_response  # 新增：导入make_response
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_huggingface import HuggingFacePipeline
@@ -55,7 +56,8 @@ if not os.path.exists(BGE_EMBEDDING_PATH):
 embeddings_model = HuggingFaceEmbeddings(
     model_name=BGE_EMBEDDING_PATH,
     model_kwargs={"device": "cuda" if torch.cuda.is_available()
-                  else "cpu", "trust_remote_code": True}
+                                                              else "cpu", "trust_remote_code": True}
+    # model_kwargs={"device": "meta", "trust_remote_code": True}
 )
 
 # --------------------------
@@ -84,30 +86,44 @@ vectorstore = FAISS.from_texts(
     metadatas=metadatas
 )
 
-
 # 初始化QA链（关联空向量库，不变）
 qa_chain = RetrievalQA.from_chain_type(
     llm=llm,
     chain_type="stuff",
     retriever=vectorstore.as_retriever(search_kwargs={"k": 2}),
-    return_source_documents=True
+    return_source_documents=True,
+    chain_kwargs={
+        "prompt": """根据以下上下文内容，简洁回答用户问题：
+{context}
+
+问题：{question}"""
+    }
 )
-
-
 # --------------------------
-# 接口1：构建/更新知识库（不变）
+# 接口1：构建/更新知识库（替换jsonify为json.dumps）
 # --------------------------
 @app.route('/build_knowledge_base', methods=['POST'])
 def build_knowledge_base():
     try:
         data = request.get_json()
         if not data or 'knowledge_data' not in data or not isinstance(data['knowledge_data'], list):
-            return jsonify({"status": "error", "message": "缺少'knowledge_data'列表"}), 400
+            # 错误响应：用json.dumps+make_response
+            error_msg = {"status": "error", "message": "缺少'knowledge_data'列表"}
+            return make_response(
+                json.dumps(error_msg, ensure_ascii=False),
+                400,
+                {'Content-Type': 'application/json; charset=utf-8'}
+            )
 
         knowledge_data = data['knowledge_data']
         for item in knowledge_data:
             if 'source' not in item or 'content' not in item:
-                return jsonify({"status": "error", "message": "每个条目需包含'source'和'content'"}), 400
+                error_msg = {"status": "error", "message": "每个条目需包含'source'和'content'"}
+                return make_response(
+                    json.dumps(error_msg, ensure_ascii=False),
+                    400,
+                    {'Content-Type': 'application/json; charset=utf-8'}
+                )
 
         texts = [item['content'] for item in knowledge_data]
         metadatas = [{"source": item['source']} for item in knowledge_data]
@@ -116,27 +132,45 @@ def build_knowledge_base():
             global vectorstore
             vectorstore.add_texts(texts=texts, metadatas=metadatas)
 
-        return jsonify({
-            "status": "success",
-            "message": f"知识库更新完成，共添加{len(texts)}条数据"
-        }), 200
-    except Exception as e:
-        return jsonify({"status": "error", "message": f"构建失败：{str(e)}"}), 500
+        # 成功响应：用json.dumps+make_response
+        success_msg = {"status": "success", "message": f"知识库更新完成，共添加{len(texts)}条数据"}
+        return make_response(
+            json.dumps(success_msg, ensure_ascii=False),
+            200,
+            {'Content-Type': 'application/json; charset=utf-8'}
+        )
 
+    except Exception as e:
+        error_msg = {"status": "error", "message": f"构建失败：{str(e)}"}
+        return make_response(
+            json.dumps(error_msg, ensure_ascii=False),
+            500,
+            {'Content-Type': 'application/json; charset=utf-8'}
+        )
 
 # --------------------------
-# 接口2：知识库查询（不变）
+# 接口2：知识库查询（替换jsonify为json.dumps）
 # --------------------------
 @app.route('/query', methods=['POST'])
 def query_knowledge_base():
     try:
         data = request.get_json()
         if not data or 'query' not in data or not isinstance(data['query'], str) or not data['query'].strip():
-            return jsonify({"status": "error", "message": "缺少有效'query'字段"}), 400
+            error_msg = {"status": "error", "message": "缺少有效'query'字段"}
+            return make_response(
+                json.dumps(error_msg, ensure_ascii=False),
+                400,
+                {'Content-Type': 'application/json; charset=utf-8'}
+            )
 
         query = data['query'].strip()
         if vectorstore.index.ntotal == 0:
-            return jsonify({"status": "error", "message": "知识库为空，请先调用/build_knowledge_base"}), 400
+            error_msg = {"status": "error", "message": "知识库为空，请先调用/build_knowledge_base"}
+            return make_response(
+                json.dumps(error_msg, ensure_ascii=False),
+                400,
+                {'Content-Type': 'application/json; charset=utf-8'}
+            )
 
         result = qa_chain({"query": query})
 
@@ -152,10 +186,20 @@ def query_knowledge_base():
             ]
         }
 
-        return jsonify(formatted_result), 200
-    except Exception as e:
-        return jsonify({"status": "error", "message": f"查询失败：{str(e)}"}), 500
+        # 成功响应：用json.dumps+make_response
+        return make_response(
+            json.dumps(formatted_result, ensure_ascii=False),
+            200,
+            {'Content-Type': 'application/json; charset=utf-8'}
+        )
 
+    except Exception as e:
+        error_msg = {"status": "error", "message": f"查询失败：{str(e)}"}
+        return make_response(
+            json.dumps(error_msg, ensure_ascii=False),
+            500,
+            {'Content-Type': 'application/json; charset=utf-8'}
+        )
 
 # --------------------------
 # 启动应用（不变）
@@ -168,3 +212,7 @@ if __name__ == '__main__':
         app.logger.error(f"预热失败：{str(e)}")
 
     app.run(host='0.0.0.0', port=5000, debug=False)
+
+
+
+ 
