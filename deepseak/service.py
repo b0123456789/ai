@@ -65,8 +65,8 @@ embeddings_model = HuggingFaceEmbeddings(
 # 关键修正：FAISS初始化仅需index和embedding
 # --------------------------
 # 动态获取嵌入维度（不变）
-test_text = "test"
 try:
+    test_text = "test"
     test_embedding = embeddings_model.embed_query(test_text)
     embedding_dim = len(test_embedding)
 except Exception as e:
@@ -76,9 +76,7 @@ except Exception as e:
 empty_index = faiss.IndexFlatL2(embedding_dim)
 
 # 初始化FAISS向量库：**仅传入index和embedding**
-knowledge_data = [
-    {"source": "柔嘉", "content": "柔嘉"},
-]
+knowledge_data = [{"source": "", "content": ""},]
 texts = [item["content"] for item in knowledge_data]
 metadatas = [{"source": item["source"]} for item in knowledge_data]
 vectorstore = FAISS.from_texts(
@@ -197,7 +195,7 @@ def query_knowledge_base():
                     "source": doc.metadata["source"],
                     "content": doc.page_content.strip()
                 }
-                for doc in result["source_documents"]
+                for doc in result["source_documents"] if doc.metadata["source"] != "" and doc.page_content.strip() != ""
             ]
         }
 
