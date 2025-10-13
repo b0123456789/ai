@@ -73,7 +73,7 @@ except Exception as e:
     raise ValueError(f"无法获取嵌入维度：{str(e)}") from e
 
 # 创建空的FAISS索引（不变）
-empty_index = faiss.IndexFlatL2(embedding_dim)
+# empty_index = faiss.IndexFlatL2(embedding_dim)
 
 # 初始化FAISS向量库：**仅传入index和embedding**
 knowledge_data = [{"source": "", "content": ""},]
