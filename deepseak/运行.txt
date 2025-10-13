@@ -1,0 +1,10 @@
+1.安装miniconda：python env 
+2.安装依赖：requirements.txt
+
+
+3.cmd切换python env,运行命令
+E:\code\deepseak>conda activate base    //命令
+(base) E:\code\deepseak> //切换成功
+
+4.进入代码目录
+python ./traning.py
