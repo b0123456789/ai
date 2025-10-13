@@ -1,0 +1,5 @@
+
+POST http://127.0.0.1:5000/query HTTP/1.1
+content-type: application/json
+
+{"query": "DeepSeek 是哪家公司开发的？"}

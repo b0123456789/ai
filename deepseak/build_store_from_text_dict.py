@@ -64,10 +64,9 @@ knowledge_data = [
     {"source": "文档3", "content": "RAG 技术（检索增强生成）通过外部知识库解决大模型的幻觉问题"},
     {"source": "文档4", "content": "本知识库用于测试 LangChain 的 RAG 功能"}
 ]
-
-
 texts = [item["content"] for item in knowledge_data]
 metadatas = [{"source": item["source"]} for item in knowledge_data]
+
 
 # --------------------------
 # 4. 加载本地 BGE 嵌入模型（修正后）
