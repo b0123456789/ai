@@ -91,14 +91,9 @@ qa_chain = RetrievalQA.from_chain_type(
     llm=llm,
     chain_type="stuff",
     retriever=vectorstore.as_retriever(search_kwargs={"k": 2}),
-    return_source_documents=True,
-    chain_kwargs={
-        "prompt": """根据以下上下文内容，简洁回答用户问题：
-{context}
-
-问题：{question}"""
-    }
+    return_source_documents=True
 )
+
 # --------------------------
 # 接口1：构建/更新知识库（替换jsonify为json.dumps）
 # --------------------------
