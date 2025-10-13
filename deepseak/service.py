@@ -20,6 +20,7 @@ model_dir = snapshot_download(
     cache_dir='e:/code/deepseek-7b-chat',
     revision='master'
 )
+VECTORSTORE_PATH = "./faiss_index"  # 新增：FAISS本地保存路径
 BGE_EMBEDDING_PATH = "E:/code/local_bge_large_zh/BAAI/bge-large-zh"
 LLM_TEMPERATURE = 0.7
 LLM_TOP_P = 0.9
@@ -76,14 +77,22 @@ except Exception as e:
 # empty_index = faiss.IndexFlatL2(embedding_dim)
 
 # 初始化FAISS向量库：**仅传入index和embedding**
-knowledge_data = [{"source": "", "content": ""},]
-texts = [item["content"] for item in knowledge_data]
-metadatas = [{"source": item["source"]} for item in knowledge_data]
-vectorstore = FAISS.from_texts(
-    texts=texts,
-    embedding=embeddings_model,
-    metadatas=metadatas
-)
+
+
+if os.path.exists(VECTORSTORE_PATH):
+    app.logger.info("正在加载本地FAISS索引...")
+    vectorstore = FAISS.load_local(
+        VECTORSTORE_PATH, embeddings=embeddings_model)
+else:
+    knowledge_data = [{"source": "", "content": ""},]
+    texts = [item["content"] for item in knowledge_data]
+    metadatas = [{"source": item["source"]} for item in knowledge_data]
+    app.logger.info("未找到本地FAISS索引，创建新的...")
+    vectorstore = FAISS.from_texts(
+        texts=texts,
+        embedding=embeddings_model,
+        metadatas=metadatas
+    )
 
 # 初始化QA链（关联空向量库，不变）
 # 初始化QA链（修正：自定义Prompt模板去掉英文前缀）
@@ -106,7 +115,7 @@ Answer:'''  # 自定义模板：无英文前缀
 )
 
 # --------------------------
-# 接口1：构建/更新知识库（替换jsonify为json.dumps）
+# 接口1：构建/更新知识库）
 # --------------------------
 
 
@@ -159,7 +168,7 @@ def build_knowledge_base():
         )
 
 # --------------------------
-# 接口2：知识库查询（替换jsonify为json.dumps）
+# 接口2：知识库查询）
 # --------------------------
 
 
@@ -213,6 +222,22 @@ def query_knowledge_base():
             500,
             {'Content-Type': 'application/json; charset=utf-8'}
         )
+
+# --------------------------
+# 接口3：知识库保存
+# --------------------------
+
+
+@app.route('/save/vectorstore', methods=['POST'])
+def query_knowledge_base():
+    vectorstore.save_local(VECTORSTORE_PATH)
+    success_msg = {"status": "success",
+                   "message": f"知识库已保存到{VECTORSTORE_PATH}"}
+    return make_response(
+        json.dumps(success_msg, ensure_ascii=False),
+        200,
+        {'Content-Type': 'application/json; charset=utf-8'}
+    )
 
 
 # --------------------------

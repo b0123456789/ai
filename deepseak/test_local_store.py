@@ -7,7 +7,7 @@ from langchain_huggingface import HuggingFacePipeline
 from langchain.chains import RetrievalQA
 from modelscope import snapshot_download, AutoTokenizer, AutoModel
 from transformers import TextStreamer, AutoModelForCausalLM, pipeline
-
+from langchain.prompts.prompt import PromptTemplate
 
 # --------------------------
 # 1. 加载 DeepSeek 模型（本地缓存）并配置生成参数
@@ -58,14 +58,6 @@ llm = HuggingFacePipeline(pipeline=transformers_pipeline)
 # --------------------------
 # 3. 准备知识库数据
 # --------------------------
-knowledge_data = [
-    {"source": "文档1", "content": "DeepSeek 是由深度求索（DeepSeek AI）开发的开源大语言模型"},
-    {"source": "文档2", "content": "DeepSeek-LLM 支持 Chat、Code、Embedding 等多种任务"},
-    {"source": "文档3", "content": "RAG 技术（检索增强生成）通过外部知识库解决大模型的幻觉问题"},
-    {"source": "文档4", "content": "本知识库用于测试 LangChain 的 RAG 功能"}
-]
-texts = [item["content"] for item in knowledge_data]
-metadatas = [{"source": item["source"]} for item in knowledge_data]
 
 
 # --------------------------
@@ -89,25 +81,46 @@ embeddings_model = HuggingFaceEmbeddings(
 # --------------------------
 # 5. 构建向量库与 RAG 链
 # --------------------------
-vectorstore = FAISS.from_texts(
-    texts=texts,
-    embedding=embeddings_model,
-    metadatas=metadatas
+# --------------------------
+# 4. 准备知识库数据
+# --------------------------
+# knowledge_data = [
+#     {"source": "文档1", "content": "DeepSeek 是由深度求索（DeepSeek AI）开发的开源大语言模型"},
+#     {"source": "文档2", "content": "DeepSeek-LLM 支持 Chat、Code、Embedding 等多种任务"},
+#     {"source": "文档3", "content": "RAG 技术（检索增强生成）通过外部知识库解决大模型的幻觉问题"},
+#     {"source": "文档4", "content": "本知识库用于测试 LangChain 的 RAG 功能"}
+# ]
+
+VECTORSTORE_PATH = "./faiss_index_test"  # 新增：FAISS本地保存路径
+vectorstore = FAISS.load_local(
+    VECTORSTORE_PATH,
+    embeddings=embeddings_model,
+    allow_dangerous_deserialization=True  # 必须添加
 )
+
 
 qa_chain = RetrievalQA.from_chain_type(
     llm=llm,
     chain_type="stuff",
     retriever=vectorstore.as_retriever(search_kwargs={"k": 2}),
-    return_source_documents=True
+    return_source_documents=True,
+    # 关键修改：通过chain_type_kwargs传递自定义Prompt模板
+    chain_type_kwargs={
+        "prompt": PromptTemplate(
+            # 必须匹配StuffDocumentsChain的输入变量
+            input_variables=["context", "question"],
+            template='''{context}
+Question: {question}
+Answer:'''  # 自定义模板：无英文前缀
+        )
+    }
 )
-
 
 # --------------------------
 # 6. 测试查询
 # --------------------------
-#query = "DeepSeek 是哪家公司开发的？"
-query = "百度老板是谁"
+query = "DeepSeek 是哪家公司开发的？"
+# query = "百度老板是谁"
 result = qa_chain.invoke({"query": query})
 
 print("问题:", query)

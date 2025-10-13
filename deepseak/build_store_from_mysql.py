@@ -94,24 +94,7 @@ vectorstore = FAISS.from_texts(
     embedding=embeddings_model,
     metadatas=metadatas
 )
-
-qa_chain = RetrievalQA.from_chain_type(
-    llm=llm,
-    chain_type="stuff",
-    retriever=vectorstore.as_retriever(search_kwargs={"k": 2}),
-    return_source_documents=True
-)
-
-
-# --------------------------
-# 6. 测试查询
-# --------------------------
-#query = "DeepSeek 是哪家公司开发的？"
-query = "百度老板是谁"
-result = qa_chain.invoke({"query": query})
-
-print("问题:", query)
-print("答案:", result["result"].strip())
-print("来源文档:")
-for doc in result["source_documents"]:
-    print(f"- 来自 {doc.metadata['source']}: {doc.page_content.strip()}")
+ 
+VECTORSTORE_PATH = "./faiss_index_test"  # 新增：FAISS本地保存路径
+vectorstore.save_local(VECTORSTORE_PATH)
+print("保存成功")
