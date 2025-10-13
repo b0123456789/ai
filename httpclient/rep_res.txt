@@ -1,0 +1,19 @@
+构建知识库接口（/build_knowledge_base）
+{
+    "knowledge_data": [
+        {"source": "文档1", "content": "DeepSeek是深度求索开发的模型"},
+        {"source": "文档2", "content": "百度创始人是李彦宏"}
+    ]
+}
+
+查询接口（/query）
+{"query": "百度老板是谁"}
+
+执行查询
+{
+    "question": "百度老板是谁",
+    "answer": "百度的创始人是李彦宏。",
+    "sources": [
+        {"source": "文档2", "content": "百度创始人是李彦宏"}
+    ]
+}

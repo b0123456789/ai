@@ -1,0 +1,9 @@
+POST http://127.0.0.1:5000/build_knowledge_base HTTP/1.1
+content-type: application/json
+
+{
+    "knowledge_data": [
+        {"source": "文档1", "content": "DeepSeek是深度求索开发的模型"},
+        {"source": "文档2", "content": "百度创始人是李彦宏"}
+    ]
+}
