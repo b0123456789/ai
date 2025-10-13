@@ -10,6 +10,7 @@ from langchain.chains import RetrievalQA
 from modelscope import snapshot_download, AutoTokenizer, AutoModel
 from transformers import TextStreamer, AutoModelForCausalLM, pipeline
 from threading import Lock
+from langchain.prompts.prompt import PromptTemplate
 
 # --------------------------
 # 全局配置
@@ -56,7 +57,7 @@ if not os.path.exists(BGE_EMBEDDING_PATH):
 embeddings_model = HuggingFaceEmbeddings(
     model_name=BGE_EMBEDDING_PATH,
     model_kwargs={"device": "cuda" if torch.cuda.is_available()
-                                                              else "cpu", "trust_remote_code": True}
+                  else "cpu", "trust_remote_code": True}
     # model_kwargs={"device": "meta", "trust_remote_code": True}
 )
 
@@ -87,16 +88,30 @@ vectorstore = FAISS.from_texts(
 )
 
 # 初始化QA链（关联空向量库，不变）
+# 初始化QA链（修正：自定义Prompt模板去掉英文前缀）
+
 qa_chain = RetrievalQA.from_chain_type(
     llm=llm,
     chain_type="stuff",
     retriever=vectorstore.as_retriever(search_kwargs={"k": 2}),
-    return_source_documents=True
+    return_source_documents=True,
+    # 关键修改：通过chain_type_kwargs传递自定义Prompt模板
+    chain_type_kwargs={
+        "prompt": PromptTemplate(
+            # 必须匹配StuffDocumentsChain的输入变量
+            input_variables=["context", "question"],
+            template='''{context}
+Question: {question}
+Answer:'''  # 自定义模板：无英文前缀
+        )
+    }
 )
 
 # --------------------------
 # 接口1：构建/更新知识库（替换jsonify为json.dumps）
 # --------------------------
+
+
 @app.route('/build_knowledge_base', methods=['POST'])
 def build_knowledge_base():
     try:
@@ -113,7 +128,8 @@ def build_knowledge_base():
         knowledge_data = data['knowledge_data']
         for item in knowledge_data:
             if 'source' not in item or 'content' not in item:
-                error_msg = {"status": "error", "message": "每个条目需包含'source'和'content'"}
+                error_msg = {"status": "error",
+                             "message": "每个条目需包含'source'和'content'"}
                 return make_response(
                     json.dumps(error_msg, ensure_ascii=False),
                     400,
@@ -128,7 +144,8 @@ def build_knowledge_base():
             vectorstore.add_texts(texts=texts, metadatas=metadatas)
 
         # 成功响应：用json.dumps+make_response
-        success_msg = {"status": "success", "message": f"知识库更新完成，共添加{len(texts)}条数据"}
+        success_msg = {"status": "success",
+                       "message": f"知识库更新完成，共添加{len(texts)}条数据"}
         return make_response(
             json.dumps(success_msg, ensure_ascii=False),
             200,
@@ -146,6 +163,8 @@ def build_knowledge_base():
 # --------------------------
 # 接口2：知识库查询（替换jsonify为json.dumps）
 # --------------------------
+
+
 @app.route('/query', methods=['POST'])
 def query_knowledge_base():
     try:
@@ -160,14 +179,15 @@ def query_knowledge_base():
 
         query = data['query'].strip()
         if vectorstore.index.ntotal == 0:
-            error_msg = {"status": "error", "message": "知识库为空，请先调用/build_knowledge_base"}
+            error_msg = {"status": "error",
+                         "message": "知识库为空，请先调用/build_knowledge_base"}
             return make_response(
                 json.dumps(error_msg, ensure_ascii=False),
                 400,
                 {'Content-Type': 'application/json; charset=utf-8'}
             )
 
-        result = qa_chain({"query": query})
+        result = qa_chain.invoke({"query": query})
 
         formatted_result = {
             "question": query,
@@ -196,18 +216,15 @@ def query_knowledge_base():
             {'Content-Type': 'application/json; charset=utf-8'}
         )
 
+
 # --------------------------
 # 启动应用（不变）
 # --------------------------
 if __name__ == '__main__':
     try:
-        qa_chain({"query": "Warm up"})
+        qa_chain.invoke({"query": "Warm up"})
         app.logger.info("服务预热成功")
     except Exception as e:
         app.logger.error(f"预热失败：{str(e)}")
 
     app.run(host='0.0.0.0', port=5000, debug=False)
-
-
-
- 
