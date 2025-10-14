@@ -14,7 +14,7 @@ from langchain.prompts.prompt import PromptTemplate
 import mysql.connector
 from mysql.connector import Error
 from datetime import datetime
-
+from flask_cors import CORS  # 导入扩展
 # --------------------------
 # 全局配置
 # --------------------------
@@ -33,6 +33,14 @@ LLM_MAX_NEW_TOKENS = 512
 # 初始化Flask与全局资源
 # --------------------------
 app = Flask(__name__)
+# CORS(app)  # 全局启用 CORS，允许所有源
+CORS(
+    app,
+    origins=["*"],  # 必须指定具体源（不能是*）
+    supports_credentials=True,  # 允许携带凭证
+    methods=["GET", "POST", "OPTIONS"],
+    headers=["Content-Type", "Authorization"]
+)
 vectorstore_lock = Lock()
 
 # 1. 加载大模型（LLM）（不变）
@@ -210,7 +218,7 @@ def get_paginated_data(page: int = 1, per_page: int = 20):
 
 def jsonOk(success_msg, data={}):
     return make_response(
-        json.dumps({"status": False, "message": success_msg, "data": data},
+        json.dumps({"status":  True, "message": success_msg, "data": data},
                    ensure_ascii=False),
         200,
         {'Content-Type': 'application/json; charset=utf-8'}
@@ -219,7 +227,7 @@ def jsonOk(success_msg, data={}):
 
 def jsonErr(error_msg):
     return make_response(
-        json.dumps({"status": True, "message": error_msg},
+        json.dumps({"status": False, "message": error_msg},
                    ensure_ascii=False),
         400,
         {'Content-Type': 'application/json; charset=utf-8'}
