@@ -165,6 +165,46 @@ def remove_data(source):
         cursor.close()
 
 
+def get_paginated_data(page: int = 1, per_page: int = 20):
+    try:
+        cursor = conn.cursor(dictionary=True)  # 返回字典格式结果
+
+        # 计算偏移量
+        if page - 1 < 0:
+            page = 1
+
+        offset = (page - 1) * per_page
+
+        # 1. 查询当前页数据
+        query = "SELECT * FROM doc ORDER BY id DESC LIMIT %s OFFSET %s"
+        cursor.execute(query, (per_page, offset))
+        data = cursor.fetchall()
+
+        # 2. 查询总记录数
+        cursor.execute("SELECT COUNT(*) AS total FROM doc")
+        total = cursor.fetchone()['total']
+
+        # 计算总页数
+        total_pages = (total + per_page - 1) // per_page
+
+        return {
+            "data": data,
+            "pagination": {
+                "page": page,
+                "per_page": per_page,
+                "total": total,
+                "total_pages": total_pages,
+                "has_next": page < total_pages,
+                "has_prev": page > 1
+            }
+        }
+    except Error as e:
+        print(f"数据库错误: {e}")
+        return None
+    finally:
+        cursor.close()
+
+
 def jsonOk(success_msg, data={}):
     return make_response(
         json.dumps({"status": "error", "message": success_msg, "data": data},
@@ -292,6 +332,16 @@ def remove_vectorstore_doc():
     remove_data(doc)
 
     return jsonOk(f"已删除文档{doc}")
+
+# --------------------------
+# 接口5：列出知识库文档
+# --------------------------
+
+
+@app.route('/list/vectorstore/doc', methods=['POST'])
+def list_vectorstore_doc():
+    page = int(request.args.get('page', '1'))
+    return jsonOk("查询成功", get_paginated_data(page))
 
 
 # --------------------------
