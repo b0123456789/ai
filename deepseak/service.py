@@ -187,8 +187,11 @@ def get_paginated_data(page: int = 1, per_page: int = 20):
         # 计算总页数
         total_pages = (total + per_page - 1) // per_page
 
+        for row in data:
+            row["createtime"] = row["createtime"].strftime("%Y-%m-%d %H:%M:%S")
+
         return {
-            "data": data,
+            "row": data,
             "pagination": {
                 "page": page,
                 "per_page": per_page,
@@ -338,9 +341,10 @@ def remove_vectorstore_doc():
 # --------------------------
 
 
-@app.route('/list/vectorstore/doc', methods=['POST'])
+@app.route('/list/vectorstore/doc', methods=['GET'])
 def list_vectorstore_doc():
     page = int(request.args.get('page', '1'))
+    print(page)
     return jsonOk("查询成功", get_paginated_data(page))
 
 
