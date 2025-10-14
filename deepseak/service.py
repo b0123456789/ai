@@ -210,7 +210,7 @@ def get_paginated_data(page: int = 1, per_page: int = 20):
 
 def jsonOk(success_msg, data={}):
     return make_response(
-        json.dumps({"status": "error", "message": success_msg, "data": data},
+        json.dumps({"status": False, "message": success_msg, "data": data},
                    ensure_ascii=False),
         200,
         {'Content-Type': 'application/json; charset=utf-8'}
@@ -219,7 +219,7 @@ def jsonOk(success_msg, data={}):
 
 def jsonErr(error_msg):
     return make_response(
-        json.dumps({"status": "success", "message": error_msg},
+        json.dumps({"status": True, "message": error_msg},
                    ensure_ascii=False),
         400,
         {'Content-Type': 'application/json; charset=utf-8'}
@@ -230,8 +230,8 @@ def jsonErr(error_msg):
 # --------------------------
 
 
-@app.route('/build_knowledge_base', methods=['POST'])
-def build_knowledge_base():
+@app.route('/add/vectorstore/doc', methods=['POST'])
+def add_vectorstore_doc():
     try:
         data = request.get_json()
         if not data or 'knowledge_data' not in data or not isinstance(data['knowledge_data'], list):

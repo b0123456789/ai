@@ -1,4 +1,4 @@
-POST http://127.0.0.1:5000/build_knowledge_base HTTP/1.1
+POST http://127.0.0.1:5000/add/vectorstore/doc HTTP/1.1
 content-type: application/json
 
 {
