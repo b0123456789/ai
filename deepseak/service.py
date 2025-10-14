@@ -11,6 +11,9 @@ from modelscope import snapshot_download, AutoTokenizer, AutoModel
 from transformers import TextStreamer, AutoModelForCausalLM, pipeline
 from threading import Lock
 from langchain.prompts.prompt import PromptTemplate
+import mysql.connector
+from mysql.connector import Error
+from datetime import datetime
 
 # --------------------------
 # 全局配置
@@ -82,7 +85,10 @@ except Exception as e:
 if os.path.exists(VECTORSTORE_PATH):
     app.logger.info("正在加载本地FAISS索引...")
     vectorstore = FAISS.load_local(
-        VECTORSTORE_PATH, embeddings=embeddings_model)
+        VECTORSTORE_PATH,
+        embeddings=embeddings_model,
+        allow_dangerous_deserialization=True  # 必须添加
+    )
 else:
     knowledge_data = [{"source": "", "content": ""},]
     texts = [item["content"] for item in knowledge_data]
@@ -115,6 +121,68 @@ Answer:'''  # 自定义模板：无英文前缀
 )
 
 # --------------------------
+# mysql
+# --------------------------
+
+conn = mysql.connector.connect(
+    host='localhost',      # 数据库地址（本地/远程）
+    user='root',           # 用户名
+    password='root',  # 密码
+    database='doc',    # 要操作的数据库（需提前创建）
+    charset='utf8mb4',     # 支持中文/emoji
+    port=3306              # MySQL默认端口
+)
+
+if not conn.is_connected():
+    print("mysql 没有连接")
+    os._exit(0)
+
+
+def insert_data(source, content):
+    remove_data(source)
+    cursor = conn.cursor()
+    try:
+        sql = "INSERT INTO doc (source, content,createtime) VALUES (%s, %s, %s)"
+        now = datetime.now()
+        cursor.execute(
+            sql,  (source, content, now.strftime("%Y-%m-%d %H:%M:%S")))
+        conn.commit()  # 提交事务（增删改必须执行）
+    except Error as e:
+        conn.rollback()  # 出错回滚
+    finally:
+        cursor.close()
+
+
+def remove_data(source):
+    cursor = conn.cursor()
+    try:
+        sql = "DELETE FROM doc WHERE source = %s"
+        cursor.execute(sql, (source,))
+        conn.commit()
+    except Error as e:
+        conn.rollback()
+    finally:
+        cursor.close()
+
+
+def jsonOk(success_msg, data={}):
+    return make_response(
+        json.dumps({"status": "error", "message": success_msg, "data": data},
+                   ensure_ascii=False),
+        200,
+        {'Content-Type': 'application/json; charset=utf-8'}
+    )
+
+
+def jsonErr(error_msg):
+    return make_response(
+        json.dumps({"status": "success", "message": error_msg},
+                   ensure_ascii=False),
+        400,
+        {'Content-Type': 'application/json; charset=utf-8'}
+    )
+
+# --------------------------
 # 接口1：构建/更新知识库）
 # --------------------------
 
@@ -124,48 +192,28 @@ def build_knowledge_base():
     try:
         data = request.get_json()
         if not data or 'knowledge_data' not in data or not isinstance(data['knowledge_data'], list):
-            # 错误响应：用json.dumps+make_response
-            error_msg = {"status": "error", "message": "缺少'knowledge_data'列表"}
-            return make_response(
-                json.dumps(error_msg, ensure_ascii=False),
-                400,
-                {'Content-Type': 'application/json; charset=utf-8'}
-            )
+            return jsonErr("缺少'knowledge_data'列表")
 
         knowledge_data = data['knowledge_data']
         for item in knowledge_data:
             if 'source' not in item or 'content' not in item:
-                error_msg = {"status": "error",
-                             "message": "每个条目需包含'source'和'content'"}
-                return make_response(
-                    json.dumps(error_msg, ensure_ascii=False),
-                    400,
-                    {'Content-Type': 'application/json; charset=utf-8'}
-                )
+                return jsonErr("每个条目需包含'source'和'content'")
 
         texts = [item['content'] for item in knowledge_data]
         metadatas = [{"source": item['source']} for item in knowledge_data]
+
+        # 写入mysql
+        for item in knowledge_data:
+            insert_data(item["source"], item["content"])
 
         with vectorstore_lock:
             global vectorstore
             vectorstore.add_texts(texts=texts, metadatas=metadatas)
 
-        # 成功响应：用json.dumps+make_response
-        success_msg = {"status": "success",
-                       "message": f"知识库更新完成，共添加{len(texts)}条数据"}
-        return make_response(
-            json.dumps(success_msg, ensure_ascii=False),
-            200,
-            {'Content-Type': 'application/json; charset=utf-8'}
-        )
+        return jsonOk(f"知识库更新完成，共添加{len(texts)}条数据")
 
     except Exception as e:
-        error_msg = {"status": "error", "message": f"构建失败：{str(e)}"}
-        return make_response(
-            json.dumps(error_msg, ensure_ascii=False),
-            500,
-            {'Content-Type': 'application/json; charset=utf-8'}
-        )
+        return jsonErr(f"构建失败：{str(e)}")
 
 # --------------------------
 # 接口2：知识库查询）
@@ -177,22 +225,11 @@ def query_knowledge_base():
     try:
         data = request.get_json()
         if not data or 'query' not in data or not isinstance(data['query'], str) or not data['query'].strip():
-            error_msg = {"status": "error", "message": "缺少有效'query'字段"}
-            return make_response(
-                json.dumps(error_msg, ensure_ascii=False),
-                400,
-                {'Content-Type': 'application/json; charset=utf-8'}
-            )
+            return jsonErr("缺少有效'query'字段")
 
         query = data['query'].strip()
         if vectorstore.index.ntotal == 0:
-            error_msg = {"status": "error",
-                         "message": "知识库为空，请先调用/build_knowledge_base"}
-            return make_response(
-                json.dumps(error_msg, ensure_ascii=False),
-                400,
-                {'Content-Type': 'application/json; charset=utf-8'}
-            )
+            return jsonErr("知识库为空，请先调用/build_knowledge_base")
 
         result = qa_chain.invoke({"query": query})
 
@@ -208,20 +245,10 @@ def query_knowledge_base():
             ]
         }
 
-        # 成功响应：用json.dumps+make_response
-        return make_response(
-            json.dumps(formatted_result, ensure_ascii=False),
-            200,
-            {'Content-Type': 'application/json; charset=utf-8'}
-        )
+        return jsonOk("查询成功", formatted_result)
 
     except Exception as e:
-        error_msg = {"status": "error", "message": f"查询失败：{str(e)}"}
-        return make_response(
-            json.dumps(error_msg, ensure_ascii=False),
-            500,
-            {'Content-Type': 'application/json; charset=utf-8'}
-        )
+        return jsonErr(f"查询失败：{str(e)}")
 
 # --------------------------
 # 接口3：知识库保存
@@ -229,15 +256,42 @@ def query_knowledge_base():
 
 
 @app.route('/save/vectorstore', methods=['POST'])
-def query_knowledge_base():
+def save_vectorstore():
     vectorstore.save_local(VECTORSTORE_PATH)
-    success_msg = {"status": "success",
-                   "message": f"知识库已保存到{VECTORSTORE_PATH}"}
-    return make_response(
-        json.dumps(success_msg, ensure_ascii=False),
-        200,
-        {'Content-Type': 'application/json; charset=utf-8'}
+    return jsonOk(f"知识库已保存到{VECTORSTORE_PATH}")
+
+# --------------------------
+# 接口4：知识库删除文档
+# --------------------------
+
+
+@app.route('/remove/vectorstore/doc', methods=['POST'])
+def remove_vectorstore_doc():
+
+    data = request.get_json()
+    if not data or 'doc' not in data or not isinstance(data['doc'], str) or not data['doc'].strip():
+        return jsonErr("缺少有效'doc'字段")
+
+    doc = data['doc'].strip()
+
+    retriever = vectorstore.as_retriever(
+        search_kwargs={
+            "filter": {"source": doc}  # 用 metadata 中的 source 字段过滤
+        }
     )
+
+    # 2. 获取符合条件的文档（查询内容可为空，filter 会生效）
+    docs_to_delete = retriever.get_relevant_documents("")
+    if docs_to_delete:
+        # 提取文档ID列表
+        ids_to_delete = [doc.id for doc in docs_to_delete]
+        # 执行删除
+        vectorstore.delete(ids=ids_to_delete)
+
+    # mysql 删除文档
+    remove_data(doc)
+
+    return jsonOk(f"已删除文档{doc}")
 
 
 # --------------------------

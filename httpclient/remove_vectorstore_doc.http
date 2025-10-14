@@ -1,0 +1,5 @@
+
+POST http://127.0.0.1:5000/remove/vectorstore/doc HTTP/1.1
+content-type: application/json
+
+{"doc": "文档1"}
