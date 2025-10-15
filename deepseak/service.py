@@ -184,7 +184,8 @@ def get_paginated_data(page: int = 1, per_page: int = 20, wherestr=''):
         offset = (page - 1) * per_page
 
         # 1. 查询当前页数据
-        sql="SELECT * FROM doc {} ORDER BY id DESC LIMIT {} OFFSET {}".format(wherestr, per_page, offset)
+        sql = "SELECT * FROM doc {} ORDER BY id DESC LIMIT {} OFFSET {}".format(
+            wherestr, per_page, offset)
         cursor.execute(sql)
 
         # query = "SELECT * FROM doc %s ORDER BY id DESC LIMIT %d OFFSET %d"
@@ -364,7 +365,9 @@ def list_vectorstore_doc():
         wherestr = " where {} ".format(wherestr)
 
     page = int(request.args.get('page', '1'))
-    return jsonOk("查询成功", get_paginated_data(page, wherestr=wherestr))
+    page_size = int(request.args.get('page_size', '20'))
+
+    return jsonOk("查询成功", get_paginated_data(page, page_size, wherestr=wherestr))
 
 
 # --------------------------
