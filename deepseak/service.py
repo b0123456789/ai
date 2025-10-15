@@ -187,13 +187,11 @@ def get_paginated_data(page: int = 1, per_page: int = 20, wherestr=''):
         sql = "SELECT * FROM doc {} ORDER BY id DESC LIMIT {} OFFSET {}".format(
             wherestr, per_page, offset)
         cursor.execute(sql)
-
-        # query = "SELECT * FROM doc %s ORDER BY id DESC LIMIT %d OFFSET %d"
-        # cursor.execute(query, (wherestr, per_page, offset))
         data = cursor.fetchall()
 
         # 2. 查询总记录数
-        cursor.execute("SELECT COUNT(*) AS total FROM doc")
+        sqlcount = "SELECT COUNT(*) AS total FROM doc {} ".format(wherestr)
+        cursor.execute(sqlcount)
         total = cursor.fetchone()['total']
 
         # 计算总页数
