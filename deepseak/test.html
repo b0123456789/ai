@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <!-- 引入Axios CDN（用于发送HTTP请求） -->
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <script>
+        axios.get('http://127.0.0.1:5000/list/vectorstore/doc')
+            .then(response => {
+                // 你的Flask接口返回的docList在response.data.row中
+                docList = response.data.row || [];
+                console.info(docList);
+            })
+            .catch(error => {
+                console.error('获取文档列表失败:', error);
+                console.info('获取文档列表失败，请检查后端是否运行！');
+            });
+    </script>
+</head>
+
+</html>

@@ -173,7 +173,7 @@ def remove_data(source):
         cursor.close()
 
 
-def get_paginated_data(page: int = 1, per_page: int = 20):
+def get_paginated_data(page: int = 1, per_page: int = 20, wherestr=''):
     try:
         cursor = conn.cursor(dictionary=True)  # 返回字典格式结果
 
@@ -184,8 +184,11 @@ def get_paginated_data(page: int = 1, per_page: int = 20):
         offset = (page - 1) * per_page
 
         # 1. 查询当前页数据
-        query = "SELECT * FROM doc ORDER BY id DESC LIMIT %s OFFSET %s"
-        cursor.execute(query, (per_page, offset))
+        sql="SELECT * FROM doc {} ORDER BY id DESC LIMIT {} OFFSET {}".format(wherestr, per_page, offset)
+        cursor.execute(sql)
+
+        # query = "SELECT * FROM doc %s ORDER BY id DESC LIMIT %d OFFSET %d"
+        # cursor.execute(query, (wherestr, per_page, offset))
         data = cursor.fetchall()
 
         # 2. 查询总记录数
@@ -351,9 +354,17 @@ def remove_vectorstore_doc():
 
 @app.route('/list/vectorstore/doc', methods=['GET'])
 def list_vectorstore_doc():
+    wherestr = ""
+
+    doc = request.args.get('doc', '')
+    if doc != "":
+        wherestr += " source like '%{}%' ".format(doc)
+
+    if wherestr != "":
+        wherestr = " where {} ".format(wherestr)
+
     page = int(request.args.get('page', '1'))
-    print(page)
-    return jsonOk("查询成功", get_paginated_data(page))
+    return jsonOk("查询成功", get_paginated_data(page, wherestr=wherestr))
 
 
 # --------------------------
