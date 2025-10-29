@@ -121,29 +121,28 @@ else:
 qa_chain = RetrievalQA.from_chain_type(
     llm=llm,
     chain_type="stuff",
-    retriever=vectorstore.as_retriever(search_kwargs={"k": 5}),
+    retriever=vectorstore.as_retriever(search_kwargs={"k": 2}),
     return_source_documents=True,
     # 关键修改：通过chain_type_kwargs传递自定义Prompt模板
-    chain_type_kwargs={
-        "prompt": PromptTemplate(
-            input_variables=["context", "question"],  # 必须包含 question
-            template='''问题:{question}
-上下文:{context}
-要求1:基于以上"上下文"，生成**唯一且完整**的答案，避免重复内容，并且完整回答以下问题
-要求2:要求1,要求2为提示词,不显示出来
-答案:'''
-        )
-    }
 
-    #         chain_type_kwargs={
-    #         "prompt": PromptTemplate(
-    #             # 必须匹配StuffDocumentsChain的输入变量
-    #             input_variables=["context", "question"],
-    #             template='''{context}
+    # chain_type_kwargs={
+    #     "prompt": PromptTemplate(
+    #         # 必须匹配StuffDocumentsChain的输入变量
+    #         input_variables=["context", "question"],
+    #         template='''{context}
     # Question: {question}
     # Answer:'''  # 自定义模板：无英文前缀
-    #         )
-    #     }
+    #     )
+    # }
+    # chain_type_kwargs={
+    #     "prompt": PromptTemplate(
+    #         # 必须匹配StuffDocumentsChain的输入变量
+    #         input_variables=["context", "question"],
+    #         template='''{context}
+    # Question: {question}
+    # Answer:'''  # 自定义模板：无英文前缀
+    #     )
+    # }
 )
 
 # --------------------------
