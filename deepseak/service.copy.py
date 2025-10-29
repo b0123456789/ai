@@ -128,9 +128,9 @@ qa_chain = RetrievalQA.from_chain_type(
         "prompt": PromptTemplate(
             input_variables=["context", "question"],  # 必须包含 question
             template='''问题：{question}
-上下文：{context}
-请基于以上上下文，完整回答以下问题：
-答案：'''  # 明确问题引导，要求“完整回答”
+【上下文】{context}
+【要求】基于以上上下文，生成**唯一且完整**的答案，避免重复内容，并且完整回答以下问题：
+【答案】'''
         )
     }
 
