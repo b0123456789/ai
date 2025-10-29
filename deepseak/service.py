@@ -31,7 +31,7 @@ model_dir = snapshot_download(
 VECTORSTORE_PATH = "./faiss_index"  # 新增：FAISS本地保存路径
 BGE_EMBEDDING_PATH = "E:/code/local_bge_large_zh/BAAI/bge-large-zh"
 # 降低temperature（如从0.7→0.5），让模型生成更聚焦的内容；提高top_p（如从0.9→0.95），增加生成多样性。
-LLM_TEMPERATURE = 0.5
+LLM_TEMPERATURE = 0.7
 LLM_TOP_P = 0.9
 LLM_MAX_NEW_TOKENS = 20480
 
@@ -127,10 +127,11 @@ qa_chain = RetrievalQA.from_chain_type(
     chain_type_kwargs={
         "prompt": PromptTemplate(
             input_variables=["context", "question"],  # 必须包含 question
-            template='''问题：{question}
-【上下文】{context}
-【要求】基于以上上下文，生成**唯一且完整**的答案，避免重复内容，并且完整回答以下问题：
-【答案】'''
+            template='''问题:{question}
+上下文:{context}
+要求1:基于以上"上下文"，生成**唯一且完整**的答案，避免重复内容，并且完整回答以下问题
+要求2:要求1,要求2为提示词,不显示出来
+答案:'''
         )
     }
 
@@ -295,34 +296,28 @@ def add_vectorstore_doc():
 def query_knowledge_base():
     try:
         data = request.get_json()
-        # 改为接收问题列表
-        if not data or 'query' not in data or not isinstance(data['query'], list):
-            return jsonErr("请输入问题列表（如[{\"question\": \"问题1\"}, ...]）")
+        if not data or 'query' not in data or not isinstance(data['query'], str) or not data['query'].strip():
+            return jsonErr("缺少有效'query'字段")
 
-        # 问题去重（按内容哈希）
-        seen_questions = set()
-        unique_queries = []
-        for q in data['query']:
-            question_hash = hash(q['question'].strip())
-            if question_hash not in seen_questions:
-                seen_questions.add(question_hash)
-                unique_queries.append(q)
+        query = data['query'].strip()
+        if vectorstore.index.ntotal == 0:
+            return jsonErr("知识库为空，请先调用/build_knowledge_base")
 
-        if not unique_queries:
-            return jsonErr("无有效问题")
+        result = qa_chain.invoke({"query": query})
 
-        # 合并重复问题为一个（可选，若需保留问题顺序）
-        # 或直接处理每个唯一问题
-        results = []
-        for query_item in unique_queries:
-            query = query_item['question'].strip()
-            if not query:
-                continue
-            # 后续处理单个问题（复用之前的逻辑）
-            result = qa_chain.invoke({"query": query})
-            # ... 格式化结果 ...
+        formatted_result = {
+            "question": query,
+            "answer": result["result"].strip(),
+            "sources": [
+                {
+                    "source": doc.metadata["source"],
+                    "content": doc.page_content.strip()
+                }
+                for doc in result["source_documents"] if doc.metadata["source"] != "" and doc.page_content.strip() != ""
+            ]
+        }
 
-        return jsonOk("查询成功", {"results": results})
+        return jsonOk("查询成功", formatted_result)
 
     except Exception as e:
         return jsonErr(f"查询失败：{str(e)}")
