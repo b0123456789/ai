@@ -1,59 +1,61 @@
 import os
 import torch
 import faiss
-import json
-from flask import Flask, request, make_response
+import json  # 新增：导入json模块
+from flask import Flask, request, make_response  # 新增：导入make_response
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_huggingface import HuggingFacePipeline
 from langchain.chains import RetrievalQA
 from modelscope import snapshot_download, AutoTokenizer, AutoModel
-from transformers import pipeline, AutoModelForCausalLM
+from transformers import TextStreamer, AutoModelForCausalLM, pipeline
 from threading import Lock
 from langchain.prompts.prompt import PromptTemplate
 import mysql.connector
 from mysql.connector import Error
 from datetime import datetime
-from flask_cors import CORS
-from langchain.retrievers.base import BaseRetriever
-from langchain_core.memory import BaseMemory
-
-
+from flask_cors import CORS  # 导入扩展
 # --------------------------
 # 全局配置
 # --------------------------
+# model_dir = snapshot_download(
+#     model_id='deepseek-ai/deepseek-llm-7b-chat',
+#     cache_dir='e:/code/deepseek-7b-chat',
+#     revision='master'
+# )
 model_dir = snapshot_download(
     model_id='deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B',
     cache_dir='e:/code/deepseek-1.5b',
     revision='master'
 )
-VECTORSTORE_PATH = "./faiss_index"
+VECTORSTORE_PATH = "./faiss_index"  # 新增：FAISS本地保存路径
 BGE_EMBEDDING_PATH = "E:/code/local_bge_large_zh/BAAI/bge-large-zh"
+# 降低temperature（如从0.7→0.5），让模型生成更聚焦的内容；提高top_p（如从0.9→0.95），增加生成多样性。
 LLM_TEMPERATURE = 0.5
 LLM_TOP_P = 0.9
 LLM_MAX_NEW_TOKENS = 20480
-
 
 # --------------------------
 # 初始化Flask与全局资源
 # --------------------------
 app = Flask(__name__)
+# CORS(app)  # 全局启用 CORS，允许所有源
 CORS(
     app,
-    origins=["*"],
-    supports_credentials=True,
+    origins=["*"],  # 必须指定具体源（不能是*）
+    supports_credentials=True,  # 允许携带凭证
     methods=["GET", "POST", "OPTIONS"],
     headers=["Content-Type", "Authorization"]
 )
 vectorstore_lock = Lock()
 
-
-# 1. 加载大模型（LLM）
+# 1. 加载大模型（LLM）（不变）
 tokenizer = AutoTokenizer.from_pretrained(model_dir, trust_remote_code=True)
 llm_model = AutoModelForCausalLM.from_pretrained(
     model_dir,
     device_map="auto",
-    torch_dtype=torch.bfloat16,
+    # torch_dtype="auto",
+    torch_dtype=torch.bfloat16,  # 3060支持bfloat16，加速计算
     trust_remote_code=True,
 )
 llm_model.config.temperature = LLM_TEMPERATURE
@@ -68,21 +70,20 @@ transformers_pipeline = pipeline(
 )
 llm = HuggingFacePipeline(pipeline=transformers_pipeline)
 
-
-# 2. 加载嵌入模型
+# 2. 加载嵌入模型（不变）
 if not os.path.exists(BGE_EMBEDDING_PATH):
     raise ValueError(f"嵌入模型路径不存在：{BGE_EMBEDDING_PATH}")
 embeddings_model = HuggingFaceEmbeddings(
     model_name=BGE_EMBEDDING_PATH,
     model_kwargs={"device": "cuda" if torch.cuda.is_available()
                   else "cpu", "trust_remote_code": True}
+    # model_kwargs={"device": "meta", "trust_remote_code": True}
 )
 
-
 # --------------------------
-# FAISS初始化与去重检索器
+# 关键修正：FAISS初始化仅需index和embedding
 # --------------------------
-# 动态获取嵌入维度
+# 动态获取嵌入维度（不变）
 try:
     test_text = "test"
     test_embedding = embeddings_model.embed_query(test_text)
@@ -90,33 +91,21 @@ try:
 except Exception as e:
     raise ValueError(f"无法获取嵌入维度：{str(e)}") from e
 
+# 创建空的FAISS索引（不变）
+# empty_index = faiss.IndexFlatL2(embedding_dim)
 
-# 去重检索器（解决重复文档问题）
-class DedupRetriever(BaseRetriever):
-    def __init__(self, base_retriever):
-        self.base_retriever = base_retriever
+# 初始化FAISS向量库：**仅传入index和embedding**
 
-    def get_relevant_documents(self, query, k=None):
-        docs = self.base_retriever.get_relevant_documents(query, k=k)
-        seen_hashes = set()
-        unique_docs = []
-        for doc in docs:
-            content_hash = hash(doc.page_content.strip())
-            if content_hash not in seen_hashes:
-                seen_hashes.add(content_hash)
-                unique_docs.append(doc)
-        return unique_docs
 
-# 初始化FAISS向量库
 if os.path.exists(VECTORSTORE_PATH):
     app.logger.info("正在加载本地FAISS索引...")
     vectorstore = FAISS.load_local(
         VECTORSTORE_PATH,
         embeddings=embeddings_model,
-        allow_dangerous_deserialization=True
+        allow_dangerous_deserialization=True  # 必须添加
     )
 else:
-    knowledge_data = [{"source": "", "content": ""}]
+    knowledge_data = [{"source": "", "content": ""},]
     texts = [item["content"] for item in knowledge_data]
     metadatas = [{"source": item["source"]} for item in knowledge_data]
     app.logger.info("未找到本地FAISS索引，创建新的...")
@@ -126,45 +115,51 @@ else:
         metadatas=metadatas
     )
 
-# 替换为去重检索器
-vectorstore.retriever = DedupRetriever(
-    vectorstore.as_retriever(search_kwargs={"k": 5})
-)
+# 初始化QA链（关联空向量库，不变）
+# 初始化QA链（修正：自定义Prompt模板去掉英文前缀）
 
-
-# --------------------------
-# 修正QA链初始化（关键！）
-# --------------------------
-qa_chain = RetrievalQA(
+qa_chain = RetrievalQA.from_chain_type(
     llm=llm,
-    retriever=vectorstore.retriever,
-    return_source_documents=True,
     chain_type="stuff",
+    retriever=vectorstore.as_retriever(search_kwargs={"k": 5}),
+    return_source_documents=True,
+    # 关键修改：通过chain_type_kwargs传递自定义Prompt模板
     chain_type_kwargs={
         "prompt": PromptTemplate(
-            input_variables=["context", "question"],
-            template='''【问题】{question}
-【上下文】{context}
-【要求】基于以上上下文，生成**唯一且完整**的答案，避免重复内容。
-【答案】'''
+            input_variables=["context", "question"],  # 必须包含 question
+            template='''问题：{question}
+上下文：{context}
+请基于以上上下文，完整回答以下问题：
+答案：'''  # 明确问题引导，要求“完整回答”
         )
     }
+
+    #         chain_type_kwargs={
+    #         "prompt": PromptTemplate(
+    #             # 必须匹配StuffDocumentsChain的输入变量
+    #             input_variables=["context", "question"],
+    #             template='''{context}
+    # Question: {question}
+    # Answer:'''  # 自定义模板：无英文前缀
+    #         )
+    #     }
 )
 
 # --------------------------
-# MySQL工具函数
+# mysql
 # --------------------------
+
 conn = mysql.connector.connect(
-    host='localhost',
-    user='root',
-    password='root',
-    database='doc',
-    charset='utf8mb4',
-    port=3306
+    host='localhost',      # 数据库地址（本地/远程）
+    user='root',           # 用户名
+    password='root',  # 密码
+    database='doc',    # 要操作的数据库（需提前创建）
+    charset='utf8mb4',     # 支持中文/emoji
+    port=3306              # MySQL默认端口
 )
 
 if not conn.is_connected():
-    print("MySQL未连接，退出程序")
+    print("mysql 没有连接")
     os._exit(0)
 
 
@@ -172,13 +167,13 @@ def insert_data(source, content):
     remove_data(source)
     cursor = conn.cursor()
     try:
-        sql = "INSERT INTO doc (source, content, createtime) VALUES (%s, %s, %s)"
+        sql = "INSERT INTO doc (source, content,createtime) VALUES (%s, %s, %s)"
         now = datetime.now()
         cursor.execute(
-            sql, (source, content, now.strftime("%Y-%m-%d %H:%M:%S")))
-        conn.commit()
+            sql,  (source, content, now.strftime("%Y-%m-%d %H:%M:%S")))
+        conn.commit()  # 提交事务（增删改必须执行）
     except Error as e:
-        conn.rollback()
+        conn.rollback()  # 出错回滚
     finally:
         cursor.close()
 
@@ -197,23 +192,28 @@ def remove_data(source):
 
 def get_paginated_data(page: int = 1, per_page: int = 20, wherestr=''):
     try:
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor(dictionary=True)  # 返回字典格式结果
+
+        # 计算偏移量
         if page - 1 < 0:
             page = 1
+
         offset = (page - 1) * per_page
 
-        # 查询当前页数据
-        sql = f"SELECT * FROM doc {wherestr} ORDER BY id DESC LIMIT {per_page} OFFSET {offset}"
+        # 1. 查询当前页数据
+        sql = "SELECT * FROM doc {} ORDER BY id DESC LIMIT {} OFFSET {}".format(
+            wherestr, per_page, offset)
         cursor.execute(sql)
         data = cursor.fetchall()
 
-        # 查询总记录数
-        sqlcount = f"SELECT COUNT(*) AS total FROM doc {wherestr}"
+        # 2. 查询总记录数
+        sqlcount = "SELECT COUNT(*) AS total FROM doc {} ".format(wherestr)
         cursor.execute(sqlcount)
         total = cursor.fetchone()['total']
 
-        # 计算分页信息
+        # 计算总页数
         total_pages = (total + per_page - 1) // per_page
+
         for row in data:
             row["createtime"] = row["createtime"].strftime("%Y-%m-%d %H:%M:%S")
 
@@ -237,8 +237,8 @@ def get_paginated_data(page: int = 1, per_page: int = 20, wherestr=''):
 
 def jsonOk(success_msg, data={}):
     return make_response(
-        json.dumps({"status": True, "message": success_msg,
-                   "data": data}, ensure_ascii=False),
+        json.dumps({"status":  True, "message": success_msg, "data": data},
+                   ensure_ascii=False),
         200,
         {'Content-Type': 'application/json; charset=utf-8'}
     )
@@ -252,10 +252,11 @@ def jsonErr(error_msg):
         {'Content-Type': 'application/json; charset=utf-8'}
     )
 
+# --------------------------
+# 接口1：构建/更新知识库）
+# --------------------------
 
-# --------------------------
-# 接口1：构建/更新知识库
-# --------------------------
+
 @app.route('/add/vectorstore/doc', methods=['POST'])
 def add_vectorstore_doc():
     try:
@@ -271,7 +272,7 @@ def add_vectorstore_doc():
         texts = [item['content'] for item in knowledge_data]
         metadatas = [{"source": item['source']} for item in knowledge_data]
 
-        # 写入MySQL
+        # 写入mysql
         for item in knowledge_data:
             insert_data(item["source"], item["content"])
 
@@ -285,18 +286,20 @@ def add_vectorstore_doc():
     except Exception as e:
         return jsonErr(f"构建失败：{str(e)}")
 
+# --------------------------
+# 接口2：知识库查询）
+# --------------------------
 
-# --------------------------
-# 接口2：知识库查询（补全结果格式化）
-# --------------------------
+
 @app.route('/query', methods=['POST'])
 def query_knowledge_base():
     try:
         data = request.get_json()
+        # 改为接收问题列表
         if not data or 'query' not in data or not isinstance(data['query'], list):
             return jsonErr("请输入问题列表（如[{\"question\": \"问题1\"}, ...]）")
 
-        # 问题去重
+        # 问题去重（按内容哈希）
         seen_questions = set()
         unique_queries = []
         for q in data['query']:
@@ -308,91 +311,89 @@ def query_knowledge_base():
         if not unique_queries:
             return jsonErr("无有效问题")
 
-        # 处理每个唯一问题
+        # 合并重复问题为一个（可选，若需保留问题顺序）
+        # 或直接处理每个唯一问题
         results = []
         for query_item in unique_queries:
             query = query_item['question'].strip()
             if not query:
                 continue
-
-            # 调用QA链
+            # 后续处理单个问题（复用之前的逻辑）
             result = qa_chain.invoke({"query": query})
-
-            # 格式化结果
-            formatted_answer = result["result"].strip() or "知识库中未包含该问题的答案"
-            sources = [
-                {
-                    "source": doc.metadata["source"],
-                    "content": doc.page_content.strip()
-                }
-                for doc in result["source_documents"]
-                if doc.metadata["source"] != "" and doc.page_content.strip() != ""
-            ]
-
-            # 添加到结果
-            results.append({
-                "question": query,
-                "answer": formatted_answer,
-                "sources": sources
-            })
+            # ... 格式化结果 ...
 
         return jsonOk("查询成功", {"results": results})
 
     except Exception as e:
         return jsonErr(f"查询失败：{str(e)}")
 
-
 # --------------------------
 # 接口3：知识库保存
 # --------------------------
+
+
 @app.route('/save/vectorstore', methods=['POST'])
 def save_vectorstore():
     vectorstore.save_local(VECTORSTORE_PATH)
     return jsonOk(f"知识库已保存到{VECTORSTORE_PATH}")
 
-
 # --------------------------
 # 接口4：知识库删除文档
 # --------------------------
+
+
 @app.route('/remove/vectorstore/doc', methods=['POST'])
 def remove_vectorstore_doc():
+
     data = request.get_json()
     if not data or 'doc' not in data or not isinstance(data['doc'], str) or not data['doc'].strip():
         return jsonErr("缺少有效'doc'字段")
 
     doc = data['doc'].strip()
+
     retriever = vectorstore.as_retriever(
-        search_kwargs={"filter": {"source": doc}})
+        search_kwargs={
+            "filter": {"source": doc}  # 用 metadata 中的 source 字段过滤
+        }
+    )
     with vectorstore_lock:
+        # 2. 获取符合条件的文档（查询内容可为空，filter 会生效）
         docs_to_delete = retriever.get_relevant_documents("")
         if docs_to_delete:
+            # 提取文档ID列表
             ids_to_delete = [doc.id for doc in docs_to_delete]
+            # 执行删除
             vectorstore.delete(ids=ids_to_delete)
 
+        # mysql 删除文档
         remove_data(doc)
         vectorstore.save_local(VECTORSTORE_PATH)
     return jsonOk(f"已删除文档{doc}")
 
-
 # --------------------------
 # 接口5：列出知识库文档
 # --------------------------
+
+
 @app.route('/list/vectorstore/doc', methods=['GET'])
 def list_vectorstore_doc():
     wherestr = ""
+
     doc = request.args.get('doc', '')
     if doc != "":
-        wherestr += f" source like '%{doc}%' "
+        wherestr += " source like '%{}%' ".format(doc)
+
     if wherestr != "":
-        wherestr = f" where {wherestr} "
+        wherestr = " where {} ".format(wherestr)
 
     page = int(request.args.get('page', '1'))
     page_size = int(request.args.get('page_size', '20'))
+
     return jsonOk("查询成功", get_paginated_data(page, page_size, wherestr=wherestr))
 
 
 # --------------------------
-# 启动应用
+# 启动应用（不变）
 # --------------------------
 if __name__ == '__main__':
     try:
