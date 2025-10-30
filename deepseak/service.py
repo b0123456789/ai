@@ -191,9 +191,8 @@ def remove_data(source):
 
 
 def get_paginated_data(page: int = 1, per_page: int = 20, wherestr=''):
+    cursor = conn.cursor(dictionary=True)  # 返回字典格式结果
     try:
-        cursor = conn.cursor(dictionary=True)  # 返回字典格式结果
-
         # 计算偏移量
         if page - 1 < 0:
             page = 1
